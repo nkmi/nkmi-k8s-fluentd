@@ -1,0 +1,37 @@
+name: docker-build
+on: 
+  schedule:
+    - cron: '46 1 2,12,22 * *'
+  push:
+    branches:
+      - master
+
+env:
+  DOCKER_REPO: 'gcr.io/${{ secrets.GCP_PROJECT }}/k8s-fluentd'
+
+jobs:
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@master
+      - run: 'echo $GITHUB_SHA > REVISION'
+
+      - uses: GoogleCloudPlatform/github-actions/setup-gcloud@master
+        with:
+          service_account_key: ${{ secrets.GCP_SA_KEY }}
+          project_id: ${{ secrets.GCP_PROJECT }}
+      - run: 'gcloud --quiet auth configure-docker'
+
+      - run: 'sed -i -e "s|^FROM sorah/ruby:|FROM ${{ secrets.SORAH_RUBY_REPO }}:|" Dockerfile'
+
+      - run: "docker pull ${DOCKER_REPO}:latest || :"
+      - run: "docker pull ${DOCKER_REPO}:builder || :"
+
+      - run: "docker build --pull --cache-from ${DOCKER_REPO}:builder --target builder -t ${DOCKER_REPO}:builder -f Dockerfile ."
+      - run: "docker build --pull --cache-from ${DOCKER_REPO}:builder --cache-from ${DOCKER_REPO}:latest -t ${DOCKER_REPO}:${GITHUB_SHA} -f Dockerfile ."
+      - run: "docker push ${DOCKER_REPO}:builder"
+
+      - run: "docker tag ${DOCKER_REPO}:${GITHUB_SHA} ${DOCKER_REPO}:latest"
+      - run: "docker push ${DOCKER_REPO}:${GITHUB_SHA}"
+      - run: "docker push ${DOCKER_REPO}:latest"
